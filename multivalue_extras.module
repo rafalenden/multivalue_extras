@@ -1,0 +1,240 @@
+<?php
+
+/**
+ * @file
+ * Main module file for Multivalue Extras.
+ */
+
+require_once 'multivalue_extras.admin.inc';
+
+/**
+ * Implements hook_field_attach_form().
+ */
+function multivalue_extras_field_attach_form($entity_type, $entity, &$form, &$form_state, $langcode) {
+  if (!isset($form_state['field'])) {
+    return;
+  }
+  $fields = $form_state['field'];
+  foreach ($fields as $field_name => $field_states) {
+    if (isset($form[$field_name]) && isset($form[$field_name]['#language'])) {
+      $field_element = &$form[$field_name];
+      $field_langcode = $field_element['#language'];
+      $element = $field_element[$field_langcode];
+      $element['#parents'] = $element['#field_parents'];
+
+      $field = &$form_state['field'][$field_name][$field_langcode]['field'];
+      $field_instance = $form_state['field'][$field_name][$field_langcode]['instance'];
+
+      $settings = isset($field_instance['widget']['settings']['multivalue_extras']) ? $field_instance['widget']['settings']['multivalue_extras'] : array();
+
+      $items = field_get_items($entity_type, $entity, $field_name, $field_langcode);
+      $items_count = is_array($items) ? count($items) : 0;
+
+      $is_multi_value = $field['cardinality'] == FIELD_CARDINALITY_UNLIMITED || $field['cardinality'] > 1;
+
+      // Store original cardinality.
+      $field_state = &$form_state['field'][$field_name][$field_langcode];
+      if (!isset($field_state['original_cardinality'])) {
+        $field_state['original_cardinality'] = $field['cardinality'];
+      }
+      $cardinality = $field_state['original_cardinality'];
+
+      // Information useful when executing AJAX callbacks.
+      if (isset($form_state['triggering_element'])) {
+        $triggering_element = $form_state['triggering_element'];
+        $triggering_element_key = end($triggering_element['#parents']);
+      }
+      else {
+        $triggering_element = array();
+        $triggering_element_key = NULL;
+      }
+
+      // Do alterations only if field shoud limit the number of visible widgets.
+      if (!empty($settings['visible_widgets']) && $is_multi_value && $settings['visible_widgets'] != $cardinality) {
+        // Override field's cardinality.
+        $field['cardinality'] = is_array($items) && $field_state['original_cardinality'] == $items_count
+          ? $field_state['original_cardinality']
+          : FIELD_CARDINALITY_UNLIMITED;
+
+        // Update field state.
+        $field_state['field']['cardinality'] = $field['cardinality'];
+
+        // Add/remove field widgets.
+        if (!in_array($triggering_element_key, array('add_more', 'remove_button'))) {
+          $less_values_than_limit = $cardinality == FIELD_CARDINALITY_UNLIMITED || $field_state['items_count'] < $cardinality;
+          $remove_widgets = $less_values_than_limit || $field_state['items_count'] > $settings['visible_widgets'];
+
+          $add_widgets = ($field_state['items_count'] + 1) < $settings['visible_widgets'];
+
+          // Add.
+          if ($add_widgets) {
+            $field_state['items_count'] = $settings['visible_widgets'] - 1;
+          }
+          // Remove.
+          elseif ($remove_widgets) {
+            //dpm($field_name);
+            // Remove additional empty widgets when there are more items than the limit.
+            if ($settings['visible_widgets'] < $items_count) {
+              $field_state['items_count'] = $items_count - 1;
+            }
+            // Remove additional empty widgets.
+            else {
+              //dpm($field_name);
+              $field_state['items_count'] = $settings['visible_widgets'] - 1;
+            }
+          }
+        }
+
+        // Recreate field widget with overridden settings.
+        $field_element = current(field_default_form($field_instance['entity_type'], $entity, $field, $field_instance, $field_langcode, $items, $element, $form_state));
+
+        // Add validation.
+        $field_element[$field_langcode]['#element_validate'][] = 'multivalue_extras_validate_element';
+
+        // Fix "Remove" button of field collections.
+        // TODO: Implement custom button to remove items.
+        if ($field['type'] == 'field_collection'
+          && $field_instance['widget']['type'] == 'field_collection_embed'
+          && empty($form_state['programmed'])
+          && field_access('edit', $field, $entity_type)
+          && isset($field_element[$field_langcode]['add_more'])) {
+
+          $element_wrapper = $field_element[$field_langcode]['add_more']['#ajax']['wrapper'];
+          for ($i = 0; $i <= $field_element[$field_langcode]['#max_delta']; $i++) {
+            if (isset($field_element[$field_langcode][$i]['remove_button'])) {
+              $field_element[$field_langcode][$i]['remove_button']['#ajax']['wrapper'] = $element_wrapper;
+            }
+          }
+        }
+
+        // Hide "Add another" button if the limit of widgets is reached.
+        if ($cardinality != FIELD_CARDINALITY_UNLIMITED && $field_state['items_count'] + 1 >= $cardinality) {
+          unset($field_element[$field_langcode]['add_more']);
+        }
+      }
+
+      // Sorting widgets.
+      if ($is_multi_value && isset($settings['weight_type'])) {
+        // Attach appropriate JS file.
+        switch ($settings['weight_type']) {
+          case 'defaultable':
+            multivalue_extras_attach_defaultable($field_element, $field, $field_instance);
+            break;
+          case 'none':
+            multivalue_extras_attach_undraggable($field_element, $field, $field_instance);
+            break;
+        }
+      }
+
+      // Override label of "Add another" button.
+      if (isset($field_element[$field_langcode]['add_more']) && !empty($settings['add_another_label'])) {
+        $field_element[$field_langcode]['add_more']['#value'] = $settings['add_another_label'];
+      }
+    }
+  }
+}
+
+/**
+ * Attach JS to make multi value field defaultable.
+ *
+ * @param $field_element
+ * @param $field
+ * @param $field_instance
+ */
+function multivalue_extras_attach_defaultable(&$field_element, $field, $field_instance) {
+  $wrapper_class = drupal_html_class('field-name-' . $field['field_name']);
+
+  $path = drupal_get_path('module', 'multivalue_extras');
+  $field_element['#attached']['js'][] =  "$path/js/multivalue_defaultable.js";
+  $field_element['#attached']['js'][] = array(
+    'type' => 'setting',
+    'data' => array(
+      'multivalue_extras_defaultable_fields' => array($wrapper_class => $field_instance['label']),
+    ),
+  );
+}
+
+/**
+ * Attach JS to make multi value field undraggable.
+ *
+ * @param $field_element
+ * @param $field
+ * @param $field_instance
+ */
+function multivalue_extras_attach_undraggable(&$field_element, $field, $field_instance) {
+  $wrapper_class = drupal_html_class('field-name-' . $field['field_name']);
+
+  $path = drupal_get_path('module', 'multivalue_extras');
+  $field_element['#attached']['js'][] = "$path/js/multivalue_undraggable.js";
+  $field_element['#attached']['js'][] = array(
+    'type' => 'setting',
+    'data' => array(
+      'multivalue_extras_undraggable_fields' => array($wrapper_class => $field_instance['label']),
+    ),
+  );
+}
+
+/**
+ * Get list of excluded field widgets.
+ *
+ * @return array
+ */
+function multivalue_extras_excluded_widgets() {
+  return array();
+}
+
+/**
+ * Get additional widgets having behavior different than default.
+ *
+ * @return array
+ */
+function multivalue_extras_additional_widgets() {
+  return array();
+}
+
+/**
+ * Validate handler to handle 'required' settings
+ */
+function multivalue_extras_validate_element($element, &$form_state, $form) {
+  // No sense in penalizing the user for not having enough when they're in the
+  // middle of adding more (i.e. they clicked the "Add another item" button)...
+  if (!isset($element['add_more']) || !isset($form_state['clicked_button']) ||
+    ($form_state['clicked_button']['#id'] != $element['add_more']['#id'])) {
+    // get language and field name
+    $langcode = $element['#language'];
+    $field_name = $element['#field_name'];
+
+    $field = field_info_field($field_name);
+
+    // Filter out empty field items.
+    $values = $form_state['values'][$field_name][$langcode];
+
+    if (isset($values['add_more']))
+      unset($values['add_more']);
+
+    $filtered = _field_filter_items($field, $values);
+
+    // Get settings
+    $instance = $form_state['field'][$field_name][$langcode]['instance'];
+    $settings = $instance['widget']['settings']['multivalue_extras'];
+    $required_values = $settings['required_values'];
+    $cardinality  = $field['cardinality'];
+    $values_count = count($filtered);
+
+    // Trigger validation error if there isn't enough values.
+    if ($instance['required'] && $values_count > 0 && $values_count < $required_values) {
+      $title = isset($element['#title']) ? $element['#title'] : $element['#field_name'];
+
+      $args = array('@field' => $title, '@count' => $required_values);
+
+      if ($required_values < $cardinality) {
+        $message = t('@field field requires at least @count values.', $args);
+      }
+      else {
+        $message = t('@field field requires exactly @count values.', $args);
+      }
+
+      form_error($element, $message);
+    }
+  }
+}

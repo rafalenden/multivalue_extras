@@ -1,0 +1,4 @@
+name = Mulivalue Extras
+description = This module provides alterations and enhancments for multivalue fields.
+package = Fields
+core = 7.x
