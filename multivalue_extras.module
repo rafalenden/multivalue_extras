@@ -206,11 +206,20 @@ function multivalue_extras_validate_element($element, &$form_state, $form) {
 
     $field = field_info_field($field_name);
 
+    $field_state = field_form_get_state($element['#field_parents'], $field_name, $langcode, $form_state);
+
     // Filter out empty field items.
     $values = $form_state['values'][$field_name][$langcode];
+    if (module_exists('field_collection') && $field['type'] == 'field_collection' && isset($field_state['entity'])) {
+      $values = array();
+      foreach ($field_state['entity'] as $delta => $field_collection_item) {
+        $values[] = array('entity' => $field_collection_item);
+      }
+    }
 
-    if (isset($values['add_more']))
+    if (isset($values['add_more'])) {
       unset($values['add_more']);
+    }
 
     $filtered = _field_filter_items($field, $values);
 
