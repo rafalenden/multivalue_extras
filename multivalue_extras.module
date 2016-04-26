@@ -72,14 +72,12 @@ function multivalue_extras_field_attach_form($entity_type, $entity, &$form, &$fo
           }
           // Remove.
           elseif ($remove_widgets) {
-            //dpm($field_name);
             // Remove additional empty widgets when there are more items than the limit.
             if ($settings['visible_widgets'] < $items_count) {
               $field_state['items_count'] = $items_count - 1;
             }
             // Remove additional empty widgets.
             else {
-              //dpm($field_name);
               $field_state['items_count'] = $settings['visible_widgets'] - 1;
             }
           }
