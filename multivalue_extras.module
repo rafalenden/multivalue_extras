@@ -57,7 +57,7 @@ function multivalue_extras_field_attach_form($entity_type, $entity, &$form, &$fo
           : FIELD_CARDINALITY_UNLIMITED;
 
         // Update field state.
-        $field_state['field']['cardinality'] = $field['cardinality'];
+        $field_state['field']['cardinality'] = FIELD_CARDINALITY_UNLIMITED;
 
         // Add/remove field widgets.
         if (!in_array($triggering_element_key, array('add_more', 'remove_button'))) {
