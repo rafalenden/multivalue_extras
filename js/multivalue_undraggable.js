@@ -11,8 +11,8 @@
         $('.' + wrapperClass + ' table.tabledrag-processed', context).each(function() {
           var $draggableTable = $(this);
           $draggableTable.removeClass('tabledrag-processed');
-          $('.' + wrapperClass, context).find('.tabledrag-toggle-weight-wrapper').remove();
-          $draggableTable.find('.field-multiple-drag, .tabledrag-hide').remove();
+          $('.' + wrapperClass, context).find('.tabledrag-toggle-weight-wrapper').hide();
+          $draggableTable.find('.field-multiple-drag, .tabledrag-hide').hide();
         });
       });
     }
